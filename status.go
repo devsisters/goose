@@ -20,31 +20,33 @@ func Status(db *sql.DB, dir string) error {
 		return err
 	}
 
-	log.Println("    Applied At                  Migration")
-	log.Println("    =======================================")
-	for _, migration := range migrations {
-		printMigrationStatus(db, migration.Version, filepath.Base(migration.Source))
-	}
+	printMigrationStatus(db, migrations)
 
 	return nil
 }
 
-func printMigrationStatus(db *sql.DB, version int64, script string) {
-	var row MigrationRecord
-	q := fmt.Sprintf("SELECT tstamp, is_applied FROM %s WHERE version_id=%d ORDER BY tstamp DESC LIMIT 1", TableName(), version)
-	e := db.QueryRow(q).Scan(&row.TStamp, &row.IsApplied)
-
-	if e != nil && e != sql.ErrNoRows {
-		log.Fatal(e)
+func printMigrationStatus(db *sql.DB, migrations Migrations) {
+	records := make(map[int64]MigrationRecord)
+	q := fmt.Sprintf("SELECT version_id, tstamp, is_applied FROM %s ORDER BY tstamp ASC", TableName())
+	rows, err := db.Query(q)
+	if err != nil && err != sql.ErrNoRows {
+		log.Fatal(err)
+	}
+	for rows.Next() {
+		var row MigrationRecord
+		rows.Scan(&row.VersionID, &row.TStamp, &row.IsApplied)
+		records[row.VersionID] = row
 	}
 
-	var appliedAt string
-
-	if row.IsApplied {
-		appliedAt = row.TStamp.Format(time.ANSIC)
-	} else {
-		appliedAt = "Pending"
+	log.Println("    Applied At                  Migration")
+	log.Println("    =======================================")
+	for _, migration := range migrations {
+		var appliedAt string
+		if row, ok := records[migration.Version]; ok && row.IsApplied {
+			appliedAt = row.TStamp.Format(time.ANSIC)
+		} else {
+			appliedAt = "Pending"
+		}
+		log.Printf("    %-24s -- %v\n", appliedAt, filepath.Base(migration.Source))
 	}
-
-	log.Printf("    %-24s -- %v\n", appliedAt, script)
 }
